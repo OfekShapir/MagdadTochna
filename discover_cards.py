@@ -1,16 +1,23 @@
 from ultralytics import YOLO
 
-# load the pretrained model
 model = YOLO("Playing-Cards-Detection/yolov8s_playing_cards.pt")
 
-# run prediction on your table image
-results = model("poker.jpg")[0]
+results = model.predict(
+    "poker.jpg",
+    iou=0.6,
+    imgsz=1280,
+    max_det=200,     # ensures NMS doesn't remove cards
+    half=False,      # avoid precision loss on CPU
+    augment=True     # improves robustness
+)
 
 cards = []
-for box in results.boxes:
-    cls_id = int(box.cls.item())
-    conf = float(box.conf.item())
-    label = results.names[cls_id]  # e.g. "AH", "10C", "KS"
+res = results[0]
+
+for box in res.boxes:
+    cls_id = int(box.cls)
+    conf = float(box.conf)
+    label = res.names[cls_id]
     cards.append({"label": label, "confidence": conf})
 
 print(cards)

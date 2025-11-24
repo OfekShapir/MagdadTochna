@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import glob
 
-images = glob.glob('calib_images/*.jpg')
+images = glob.glob('caliberation/calib_images/*.jpg')
 print("Found images:", len(images))
 
 CHECKERBOARD = (7, 9)   # inner corners (from your board)
