@@ -23,6 +23,7 @@ def undistort_fisheye(img):
     balance = 0.0
     dim = (w, h)
 
+
     newK = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(
         K, D, dim, np.eye(3), balance=balance
     )
