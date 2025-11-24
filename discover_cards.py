@@ -1,6 +1,6 @@
 from ultralytics import YOLO
 
-model = YOLO("Playing-Cards-Detection/yolov8s_playing_cards.pt")
+model = YOLO("yolov8s_playing_cards.pt")
 
 results = model.predict(
     "poker.jpg",
@@ -10,6 +10,7 @@ results = model.predict(
     half=False,      # avoid precision loss on CPU
     augment=True     # improves robustness
 )
+
 
 cards = []
 res = results[0]

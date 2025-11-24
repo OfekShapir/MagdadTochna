@@ -2,7 +2,7 @@ import cv2
 from ultralytics import YOLO
 
 # Load your trained card detector
-model = YOLO("Playing-Cards-Detection/yolov8s_playing_cards.pt")
+model = YOLO("yolov8s_playing_cards.pt")
 
 # Open default webcam (index 0)
 cap = cv2.VideoCapture(0)
