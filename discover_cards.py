@@ -5,7 +5,7 @@ from collections import defaultdict
 model = YOLO("Playing-Cards-Detection/yolov8s_playing_cards.pt")
 
 results = model.predict(
-    "poker.jpg",
+    "poker.png",
     iou=0.6,
     imgsz=1280,
     max_det=200,
@@ -16,7 +16,7 @@ results = model.predict(
 res = results[0]
 
 # Load the original image
-img = cv2.imread("poker.jpg")
+img = cv2.imread("poker.png")
 
 # Store detected cards
 cards = []
