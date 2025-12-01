@@ -52,27 +52,30 @@ def distance(first_location, second_location):
     deltay=first_location[1] - second_location[1]
     return math.sqrt(deltax**2 + deltay**2)
 
+def find_closest(april_poses, card_poses, found_cards, num_of_cards, tag_id=1):
+    if not found_cards:
+        return [], []
+    cards=[]
+    dis=[]
+    found_cards_copy=found_cards.copy()
+    for i in range(num_of_cards):
+        j = 0
+        for card in found_cards_copy:
+            if j==0:
+                j+=1
+                closest_card =card
+                closest_dis = distance(april_poses[tag_id], card_poses[closest_card])
+            temp_dis = distance(april_poses[tag_id], card_poses[card])
+            if(closest_dis > temp_dis):
+                closest_dis= temp_dis
+                closest_card = card
+        cards.append(closest_card)
+        dis.append(closest_dis)
+        found_cards_copy.remove(closest_card)
+    return cards,dis
 
-def find_closest(april_poses, card_poses, found_cards, tag_id=1, return_second = True):
-    if len(found_cards) < 2 and return_second:
-        return [],[],[],[]
-    elif len(found_cards) < 1:
-        return [],[]
-
-    closest_card=found_cards[0]
-    closest_dis= distance(april_poses[tag_id], card_poses[closest_card])
-    for card in found_cards:
-        temp_dis = distance(april_poses[tag_id], card_poses[card])
-        if(closest_dis>temp_dis):
-            closest_dis= temp_dis
-            closest_card = card
-    if not return_second:
-        return closest_card,closest_dis
-    found_cards.remove(closest_card)
-    second_card,second_dis= find_closest(april_poses, card_poses, found_cards, return_second = False)
-    return closest_card,closest_dis, second_card,second_dis
-
-def run_camera():
+def game(name):
+    print("lets play " + name)
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     if not cap.isOpened():
         raise Exception("Could not open camera.")
@@ -85,7 +88,6 @@ def run_camera():
         ret, frame = cap.read()
         if not ret:
             break
-
         # 1) detect AprilTags (and draw them)
         frame_with_tags, april_poses, found_tags = detect_apriltags(frame,camera_params)
         now = time.time()
@@ -107,11 +109,9 @@ def run_camera():
 
         # Show the LIVE annotated view
         cv2.imshow("Magic: Cards + AprilTags", annotated_frame)
-        first_card, first_dis, second_card, second_dis = find_closest(april_poses, card_poses, found_cards)
-        print(first_card, second_card)
-        # (optional) print for debugging
-        # print("April poses:", april_poses)
-        # print("Cards poses:", card_poses)
+        num_of_cards= int(input("How many cards do we have?"))
+        cards,distances = find_closest(april_poses, card_poses, found_cards,num_of_cards)
+        print(cards)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
@@ -119,5 +119,5 @@ def run_camera():
     cap.release()
 
 
-run_camera()
+game("bj")
 cv2.destroyAllWindows()
