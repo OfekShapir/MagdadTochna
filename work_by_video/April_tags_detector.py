@@ -25,7 +25,9 @@ detector = Detector(
     # use 4 cpu cores to make detection faster. most cpus have 4-8 cores so its ok for computer need check on raspberry
     nthreads=4,
     # shrink img by half. pros faster cons miss small tags
-    quad_decimate=2.0,
+    #quad_decimate=2.0,
+    quad_decimate=1.0,
+
     #after a tag is found it goes back to full size to make edges
     refine_edges=True,
     decode_sharpening=0.25,
@@ -34,16 +36,15 @@ detector = Detector(
 #open the camera
 cap = cv2.VideoCapture(0)
 # force cv to run on our camera proportion 1920 1080
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)   # or whatever you used
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)  # see note below
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
 # take one image to check if its crashing
 ret, frame = cap.read()
 if not ret:
     raise Exception("Could not read from camera")
 
-print("Frame shape:", frame.shape)  # just to verify
-
+poses = {}   # will hold {tag_id: (x,y,z)}
 # start an infinity loop to process frame by frame
 while True:
     ret, frame = cap.read()
@@ -59,7 +60,7 @@ while True:
         camera_params=camera_params, # use what we forced
         tag_size=TAG_SIZE,
     )
-
+    poses = {}
     for r in results:
         # draw corners
         for (px, py) in r.corners:
@@ -80,13 +81,32 @@ while True:
         t = r.pose_t # matrix 3x1
         if t is not None:
             x, y, z = t.flatten() # x left right, y up down, z depth
+            poses[r.tag_id] = (x, y, z)
             cv2.putText(
                 frame,
                 f"z={z:.3f} m",
                 (int(r.center[0]) - 20, int(r.center[1]) + 20),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 255, 255),
+                1.0,
+                (0, 0, 0),
+                2,
+            )
+            cv2.putText(
+                frame,
+                f"x={x:.3f} m",
+                (int(r.center[0]) - 20, int(r.center[1])),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.0,
+                (0, 0, 0),
+                2,
+            )
+            cv2.putText(
+                frame,
+                f"y={y:.3f} m",
+                (int(r.center[0]) - 20, int(r.center[1]) - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.0,
+                (0, 0, 0),
                 2,
             )
         else:
