@@ -5,7 +5,13 @@ from ultralytics import YOLO
 from collections import defaultdict
 from drawimages import DrawImages
 cards_model = YOLO("yolov8s_playing_cards.pt")
+import math
 
+def found_card(data):
+    stats=data[0]["confidence"]**2 + data[1]["confidence"]**2
+    if (stats>1):
+        return True
+    return False
 def discover_cards(frame, output_id, RUN_ID, save_outputs=False):
     """
     Runs YOLO on a single frame (numpy array), finds cards,
@@ -34,7 +40,7 @@ def discover_cards(frame, output_id, RUN_ID, save_outputs=False):
         verbose=False
     )
     res = results[0]
-    cards = create_cards_dict()
+    cards = []
 
     # Extract card data
     for box in res.boxes:
@@ -44,7 +50,6 @@ def discover_cards(frame, output_id, RUN_ID, save_outputs=False):
         print(label, conf)
         x1, y1, x2, y2 = box.xyxy[0].tolist()
         cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-        cards[label].append([conf,[x1,y1,x2,y2],[cx,cy]])
         cards.append({
             "label": label,
             "confidence": conf,
@@ -59,7 +64,6 @@ def discover_cards(frame, output_id, RUN_ID, save_outputs=False):
         drawing_ops.append(
             DrawImages(cx, cy, label, (0, 0, 255), box=(x1, y1, x2, y2)).draw_card
         )
-
     # Group by label
     label_groups = defaultdict(list)
     for card in cards:
@@ -69,27 +73,26 @@ def discover_cards(frame, output_id, RUN_ID, save_outputs=False):
     card_poses = {}     # final per-card position
 
     # Middle points for duplicated cards
-    for label, group in label_groups.items():
-        if len(group) == 2:
-            c1, c2 = group[0]["center"], group[1]["center"]
-            mid_x = (c1[0] + c2[0]) / 2
-            mid_y = (c1[1] + c2[1]) / 2
+    for label, data in label_groups.items():
+        if len(data) > 2:
+            data.sort(key=lambda x: x["confidence"], reverse=True)
+        if len(data) >= 2:
+            if(found_card(data)):
+                c1, c2 = data[0]["center"], data[1]["center"]
+                mid_x = (c1[0] + c2[0]) / 2
+                mid_y = (c1[1] + c2[1]) / 2
 
-            pair_centers.append({"Card": label, "middle": (mid_x, mid_y)})
-
-            # This is the "logical" card position when we have 2 copies
-            card_poses[label] = [mid_x, mid_y]
-
-            drawing_ops.append(
-                DrawImages(mid_x, mid_y, label, (0, 255, 0)).draw_card
-            )
+                pair_centers.append({"Card": label, "middle": (mid_x, mid_y)})
+                card_poses[label] = [mid_x, mid_y]
+                drawing_ops.append(
+                    DrawImages(mid_x, mid_y, label, (0, 255, 0)).draw_card
+                )
+        elif len(data)==1:
+            # TODO FIND A WAY TO FIND THE CENTER
+            if data[0]["confidence"]>0.8:
+                cx, cy = card["center"]
+                card_poses[label] = [cx, cy]
     # For labels that appear only once (or more than twice), use the single center
-    for card in cards:
-        label = card["label"]
-        if label not in card_poses:
-            cx, cy = card["center"]
-            card_poses[label] = [cx, cy]
-
     found_cards = list(card_poses.keys())
 
     # ---------------------------------------
