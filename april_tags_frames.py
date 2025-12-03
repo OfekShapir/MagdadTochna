@@ -1,5 +1,6 @@
 from pupil_apriltags import Detector
 import cv2
+from drawimages import DrawImages
 
 detector = Detector(
     # our type of april tag, contains 36 bits, atleast 11 bits diff between ids.
@@ -23,6 +24,7 @@ def detect_apriltags(frame,camera_params):
     """
 
     april_poses = {}
+    drawing_ops = []
 
     # rgb to gray scale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -35,64 +37,52 @@ def detect_apriltags(frame,camera_params):
     )
 
     for r in results:
-        # draw corners
-        for (px, py) in r.corners:
-            cv2.circle(frame, (int(px), int(py)), 4, (0, 255, 0), -1)
+        # ------------------------------------------
+        # Extract pose
+        # ------------------------------------------
+        t = r.pose_t
+        if t is not None:
+            x, y, z = t.flatten()
+            april_poses[r.tag_id] = [x, y, z]
+        else:
+            april_poses[r.tag_id] = None  # still returned but no pose
 
-        # tag ID
-        cv2.putText(
-            frame,
-            f"ID {r.tag_id}",
-            (int(r.center[0]) - 20, int(r.center[1]) - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 0, 0),
-            2,
+        # ------------------------------------------
+        # Bounding box for AprilTag
+        # r.corners is 4 points:
+        # p0, p1, p2, p3  -> get min/max to form box
+        # ------------------------------------------
+        xs = [int(p[0]) for p in r.corners]
+        ys = [int(p[1]) for p in r.corners]
+        x1, y1 = min(xs), min(ys)
+        x2, y2 = max(xs), max(ys)
+
+        # ------------------------------------------
+        # Create drawing object
+        # ------------------------------------------
+        tag_label = f"ID {r.tag_id}"
+
+        draw_tag = DrawImages(
+            x=r.center[0],
+            y=r.center[1],
+            label=tag_label,
+            color=(255, 0, 0),  # blue-ish for tags
+            box=(x1, y1, x2, y2),
         )
 
-        # pose (safe)
-        t = r.pose_t  # matrix 3x1
-        if t is not None:
-            x, y, z = t.flatten()  # x left right, y up down, z depth
-            april_poses[r.tag_id] = [x, y, z]
+        # Schedule tag drawing (rectangle + text + center)
+        drawing_ops.append(draw_tag.draw_tag)
 
-            cv2.putText(
-                frame,
-                f"z={z:.3f} m",
-                (int(r.center[0]) - 20, int(r.center[1]) + 20),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.0,
-                (0, 0, 0),
-                2,
-            )
-            cv2.putText(
-                frame,
-                f"x={x:.3f} m",
-                (int(r.center[0]) - 20, int(r.center[1])),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.0,
-                (0, 0, 0),
-                2,
-            )
-            cv2.putText(
-                frame,
-                f"y={y:.3f} m",
-                (int(r.center[0]) - 20, int(r.center[1]) - 20),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.0,
-                (0, 0, 0),
-                2,
-            )
-        else:
-            cv2.putText(
-                frame,
-                "Pose failed",
-                (int(r.center[0]) - 20, int(r.center[1]) + 20),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 0, 255),
-                2,
-            )
+        # ------------------------------------------
+        # draw corners as green dots
+        # ------------------------------------------
+        for (px, py) in r.corners:
+            highlight = DrawImages(px, py, "", (0, 255, 0))
+            drawing_ops.append(highlight.draw_card)  # small green dot
+
+
+    for draw in drawing_ops:
+        draw(frame)
 
     found_tags = list(april_poses.keys())
     return frame, april_poses, found_tags

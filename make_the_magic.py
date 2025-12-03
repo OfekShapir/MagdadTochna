@@ -2,9 +2,9 @@ import os
 import cv2
 import time
 from collections import defaultdict
-from discover_cards_frames import discover_cards
-from april_tags_frames import detect_apriltags
 import math
+from discover_cards_frames import discover_cards,pixel_to_camera
+from april_tags_frames import detect_apriltags
 # Setup folders
 os.makedirs("results/photos", exist_ok=True)
 os.makedirs("results/texts", exist_ok=True)
@@ -41,6 +41,7 @@ cx = K[0][2]
 cy = K[1][2]
 
 camera_params = [fx, fy, cx, cy]
+tag_id_for_depth = 1
 
 # ----------------------------------------------------
 # every frames goes to both functions
@@ -57,6 +58,8 @@ def find_closest(april_poses, card_poses, found_cards, num_of_cards, tag_id=1):
         return [], []
     cards=[]
     dis=[]
+    if(len(found_cards)<=num_of_cards):
+        num_of_cards = len(found_cards)
     found_cards_copy=found_cards.copy()
     for i in range(num_of_cards):
         j = 0
@@ -75,6 +78,7 @@ def find_closest(april_poses, card_poses, found_cards, num_of_cards, tag_id=1):
     return cards,dis
 
 def game(name):
+    num_of_cards = 0
     print("lets play " + name)
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     if not cap.isOpened():
@@ -82,14 +86,16 @@ def game(name):
 
     frame_id = 0
     last_time = time.time()
-    CAPTURE_INTERVAL = 1
-
+    CAPTURE_INTERVAL = 0
+    j = 0
     while True:
         ret, frame = cap.read()
         if not ret:
             break
         # 1) detect AprilTags (and draw them)
-        frame_with_tags, april_poses, found_tags = detect_apriltags(frame,camera_params)
+        frame_for_tags = frame.copy()
+        frame_with_tags, april_poses, found_tags = detect_apriltags(frame_for_tags, camera_params)
+
         now = time.time()
         save_now = False
         if now - last_time >= CAPTURE_INTERVAL:
@@ -99,22 +105,36 @@ def game(name):
             # Save original frame for history if you want
             photo_path = f"results/photos/frame_{RUN_ID}_{frame_id:04d}.jpg"
             cv2.imwrite(photo_path, frame)
-        # run YOLO card detection
+            num_of_cards=int(input("How many cards do you want?"))
+        CAPTURE_INTERVAL = 10
+
+        # 2) run YOLO card detection on the ORIGINAL clean frame
         annotated_frame, card_poses, found_cards = discover_cards(
-            frame_with_tags,
+            frame_with_tags,  # <-- use frame WITH TAG drawings
             frame_id,
             RUN_ID,
             save_outputs=save_now
         )
 
+        card_poses_3d = {}  # card_poses_3d[label] = [X, Y, Z] in meters
+        if tag_id_for_depth in april_poses:
+            Z_ref = april_poses[tag_id_for_depth][2]  # z of the tag in meters
+            for label, (u, v) in card_poses.items():
+                X, Y, Z = pixel_to_camera(u, v, Z_ref, fx, fy, cx, cy)
+                card_poses_3d[label] = [X, Y, Z]
+        else:
+            card_poses_3d = {}
+
         # Show the LIVE annotated view
         cv2.imshow("Magic: Cards + AprilTags", annotated_frame)
-        num_of_cards= int(input("How many cards do we have?"))
-        cards,distances = find_closest(april_poses, card_poses, found_cards,num_of_cards)
+        if(j%100==0):
+            ...
+        cards,distances = find_closest(april_poses, card_poses_3d, found_cards,num_of_cards)
         print(cards)
-
+        print(distances)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+        j+=1
 
     cap.release()
 

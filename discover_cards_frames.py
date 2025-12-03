@@ -3,10 +3,10 @@ import os
 import time
 from ultralytics import YOLO
 from collections import defaultdict
-
+from drawimages import DrawImages
 cards_model = YOLO("yolov8s_playing_cards.pt")
 
-def discover_cards(frame, output_id,RUN_ID,save_outputs=False):
+def discover_cards(frame, output_id, RUN_ID, save_outputs=False):
     """
     Runs YOLO on a single frame (numpy array), finds cards,
     computes per-card positions, and optionally saves results.
@@ -17,6 +17,11 @@ def discover_cards(frame, output_id,RUN_ID,save_outputs=False):
 
     # work on a copy so we can draw
     img = frame.copy()
+
+    # -------------------------------
+    # NEW: store drawing until after detection
+    # -------------------------------
+    drawing_ops = []   # list of functions that draw AFTER all cards are found
 
     # YOLO detection
     results = cards_model.predict(
@@ -29,17 +34,17 @@ def discover_cards(frame, output_id,RUN_ID,save_outputs=False):
         verbose=False
     )
     res = results[0]
-    cards = []
+    cards = create_cards_dict()
 
     # Extract card data
     for box in res.boxes:
         cls_id = int(box.cls)
         conf = float(box.conf)
         label = res.names[cls_id]
-
+        print(label, conf)
         x1, y1, x2, y2 = box.xyxy[0].tolist()
         cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-
+        cards[label].append([conf,[x1,y1,x2,y2],[cx,cy]])
         cards.append({
             "label": label,
             "confidence": conf,
@@ -47,10 +52,13 @@ def discover_cards(frame, output_id,RUN_ID,save_outputs=False):
             "center": (cx, cy)
         })
 
-        # Draw card center
-        cv2.circle(img, (int(cx), int(cy)), 5, (0, 0, 255), -1)
-        cv2.putText(img, label, (int(cx) + 10, int(cy)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        # ---------------------------------------------------------------
+        # INSTEAD OF DRAWING NOW, SAVE A DRAWING TASK FOR LATER
+        # Draw card center + label (red)
+        # ---------------------------------------------------------------
+        drawing_ops.append(
+            DrawImages(cx, cy, label, (0, 0, 255), box=(x1, y1, x2, y2)).draw_card
+        )
 
     # Group by label
     label_groups = defaultdict(list)
@@ -72,10 +80,9 @@ def discover_cards(frame, output_id,RUN_ID,save_outputs=False):
             # This is the "logical" card position when we have 2 copies
             card_poses[label] = [mid_x, mid_y]
 
-            cv2.circle(img, (int(mid_x), int(mid_y)), 5, (0, 255, 0), -1)
-            cv2.putText(img, label, (int(mid_x) + 15, int(mid_y)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-
+            drawing_ops.append(
+                DrawImages(mid_x, mid_y, label, (0, 255, 0)).draw_card
+            )
     # For labels that appear only once (or more than twice), use the single center
     for card in cards:
         label = card["label"]
@@ -84,6 +91,12 @@ def discover_cards(frame, output_id,RUN_ID,save_outputs=False):
             card_poses[label] = [cx, cy]
 
     found_cards = list(card_poses.keys())
+
+    # ---------------------------------------
+    # DRAW EVERYTHING *NOW*, AFTER ALL FOUND
+    # ---------------------------------------
+    for draw in drawing_ops:
+        draw(img)
 
     # Save outputs (only when we ask for saved frames, not every frame)
     if save_outputs:
@@ -117,4 +130,16 @@ def discover_cards(frame, output_id,RUN_ID,save_outputs=False):
                     f.write(f"Center: {c['center']}\n\n")
 
     return img, card_poses, found_cards
+
+
+
+def pixel_to_camera(u, v, Z, fx, fy, cx, cy):
+    """
+    Convert a pixel (u,v) at depth Z into camera coordinates (X,Y,Z) in meters.
+    Assumes pinhole camera model and intrinsics fx, fy, cx, cy.
+    """
+    X = (u - cx) * Z / fx
+    Y = (v - cy) * Z / fy
+    return [X, Y, Z]
+
 
