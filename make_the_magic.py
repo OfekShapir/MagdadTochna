@@ -83,66 +83,10 @@ def find_closest(april_poses, card_poses, found_cards, num_of_cards, tag_id=1):
 
     return cards,dis
 
-def game(name):
-    num_of_cards = 0
-    print("lets play " + name)
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        raise Exception("Could not open camera.")
+def distance_for_hand(card_position,april_position,num_frames=30):
+    print("move in x " + str(math.abs(april_position[0]-card_position[0])))
+    print("move in y " + str(math.abs(april_position[1]-card_position[1])))
 
-    frame_id = 0
-    last_time = time.time()
-    CAPTURE_INTERVAL = 0
-    j = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        # 1) detect AprilTags (and draw them)
-        frame_for_tags = frame.copy()
-        frame_with_tags, april_poses, found_tags = detect_apriltags(frame_for_tags, camera_params)
-
-        now = time.time()
-        save_now = False
-        if now - last_time >= CAPTURE_INTERVAL:
-            last_time = now
-            frame_id += 1
-            save_now = True
-            # Save original frame for history if you want
-            photo_path = f"results/photos/frame_{RUN_ID}_{frame_id:04d}.jpg"
-            cv2.imwrite(photo_path, frame)
-            num_of_cards=int(input("How many cards do you want?"))
-        CAPTURE_INTERVAL = 10
-
-        # 2) run YOLO card detection on the ORIGINAL clean frame
-        annotated_frame, card_poses, found_cards = discover_cards(
-            frame_with_tags,  # <-- use frame WITH TAG drawings
-            frame_id,
-            RUN_ID,
-            save_outputs=save_now
-        )
-
-        card_poses_3d = {}  # card_poses_3d[label] = [X, Y, Z] in meters
-        if tag_id_for_depth in april_poses:
-            Z_ref = april_poses[tag_id_for_depth][2]  # z of the tag in meters
-            for label, (u, v) in card_poses.items():
-                X, Y, Z = pixel_to_camera(u, v, Z_ref, fx, fy, cx, cy)
-                card_poses_3d[label] = [X, Y, Z]
-        else:
-            card_poses_3d = {}
-
-        # Show the LIVE annotated view
-        cv2.imshow("Magic: Cards + AprilTags", annotated_frame)
-        if(j%100==0):
-            ...
-        cards,distances = find_closest(april_poses, card_poses_3d, found_cards,num_of_cards)
-        print(cards)
-        print(distances)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-        j+=1
-
-    cap.release()
 def take_a_pic(num_of_cards,num_dealer,agent):
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     if not cap.isOpened():
@@ -174,6 +118,9 @@ def take_a_pic(num_of_cards,num_dealer,agent):
         else:
             card_poses_3d = {}
 
+        for card in card_poses_3d.keys():
+            distance = distance(card_poses_3d[card], april_poses[2])
+
         # Show the LIVE annotated view
         cv2.imshow("Magic: Cards", annotated_frame)
         cards, _ = find_closest(april_poses, card_poses_3d, found_cards, num_of_cards)
@@ -200,9 +147,7 @@ def take_a_pic(num_of_cards,num_dealer,agent):
     cards=[]
     j=0
     for card in my_cards:
-        print(num_of_cards)
         if j<num_of_cards:
-            print("added a card")
             cards.append(card[0])
         j+=1
     j=0
@@ -306,5 +251,9 @@ def distance_checker_multi(num_frames=30):
 
     for card_label, tag_distances in distances.items():
         print(card_label, tag_distances)
+
+
+
+
 
 
