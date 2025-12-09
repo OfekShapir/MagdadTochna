@@ -80,7 +80,6 @@ def discover_cards(frame, output_id, RUN_ID, save_outputs=False):
 
     pair_centers = []   # middle points for duplicated cards
     card_poses = {}     # final per-card position
-
     # Middle points for duplicated cards
     for label, data in label_groups.items():
         if len(data) > 2:
@@ -90,7 +89,6 @@ def discover_cards(frame, output_id, RUN_ID, save_outputs=False):
                 c1, c2 = data[0]["center"], data[1]["center"]
                 mid_x = (c1[0] + c2[0]) / 2
                 mid_y = (c1[1] + c2[1]) / 2
-
                 pair_centers.append({"Card": label, "middle": (mid_x, mid_y)})
                 card_poses[label] = [mid_x, mid_y]
                 drawing_ops.append(
@@ -98,8 +96,14 @@ def discover_cards(frame, output_id, RUN_ID, save_outputs=False):
                 )
         elif len(data)==1:
             # TODO FIND A WAY TO FIND THE CENTER
-            #center_for_one(data)
-            ...
+            if (data[0]["confidence"]>0.8):
+                c = (data[0]["edges"][2],data[0]["edges"][3])
+                pair_centers.append({"Card": label, "middle": (c[0], c[1])})
+                card_poses[label] = [c[0], c[1]]
+                drawing_ops.append(
+                    DrawImages(c[0], c[1], label, (0, 255, 0)).draw_card
+                )
+
     # For labels that appear only once (or more than twice), use the single center
     found_cards = list(card_poses.keys())
 
@@ -139,6 +143,8 @@ def discover_cards(frame, output_id, RUN_ID, save_outputs=False):
                     f.write(f"Card: {c['label']}\n")
                     f.write(f"Edges: {c['edges']}\n")
                     f.write(f"Center: {c['center']}\n\n")
+
+
 
     return img, card_poses, found_cards
 
