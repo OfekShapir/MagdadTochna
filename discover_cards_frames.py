@@ -12,6 +12,16 @@ def found_card(data):
     if (stats>1):
         return True
     return False
+
+def center_of_one(data):
+    top_left = (data[0]["edges"][0],data[0]["edges"][1])
+    top_right = (data[0]["edges"][2], data[0]["edges"][1])
+    bottom_left = (data[0]["edges"][0],data[0]["edges"][3])
+    bottom_right = (data[0]["edges"][2], data[0]["edges"][3])
+
+
+
+
 def discover_cards(frame, output_id, RUN_ID, save_outputs=False):
     """
     Runs YOLO on a single frame (numpy array), finds cards,
@@ -47,7 +57,6 @@ def discover_cards(frame, output_id, RUN_ID, save_outputs=False):
         cls_id = int(box.cls)
         conf = float(box.conf)
         label = res.names[cls_id]
-        print(label, conf)
         x1, y1, x2, y2 = box.xyxy[0].tolist()
         cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
         cards.append({
@@ -89,9 +98,8 @@ def discover_cards(frame, output_id, RUN_ID, save_outputs=False):
                 )
         elif len(data)==1:
             # TODO FIND A WAY TO FIND THE CENTER
-            if data[0]["confidence"]>0.8:
-                cx, cy = card["center"]
-                card_poses[label] = [cx, cy]
+            #center_for_one(data)
+            ...
     # For labels that appear only once (or more than twice), use the single center
     found_cards = list(card_poses.keys())
 

@@ -1,10 +1,12 @@
 import os
 import cv2
 import time
+import sys
 from collections import defaultdict
 import math
 from discover_cards_frames import discover_cards,pixel_to_camera
 from april_tags_frames import detect_apriltags
+import numpy as np
 # Setup folders
 os.makedirs("results/photos", exist_ok=True)
 os.makedirs("results/texts", exist_ok=True)
@@ -54,6 +56,9 @@ def distance(first_location, second_location):
     return math.sqrt(deltax**2 + deltay**2)
 
 def find_closest(april_poses, card_poses, found_cards, num_of_cards, tag_id=1):
+    if(tag_id not in april_poses.keys()):
+        print("couldnt find the tag")
+        sys.exit()
     if not found_cards:
         return [], []
     cards=[]
@@ -75,6 +80,7 @@ def find_closest(april_poses, card_poses, found_cards, num_of_cards, tag_id=1):
         cards.append(closest_card)
         dis.append(closest_dis)
         found_cards_copy.remove(closest_card)
+
     return cards,dis
 
 def game(name):
@@ -137,7 +143,242 @@ def game(name):
         j+=1
 
     cap.release()
+def take_a_pic(num_of_cards,num_dealer,agent):
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        raise Exception("Could not open camera.")
+    frame_id = 0
+    number_of_images=0
+    my_cards={}
+    dealer_cards={}
+    while number_of_images!=20:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        # detect AprilTags (and draw them)
+        frame_for_tags = frame.copy()
+        frame_with_tags, april_poses, found_tags = detect_apriltags(frame_for_tags, camera_params)
+
+        # run YOLO card detection
+        annotated_frame, card_poses, found_cards = discover_cards(
+            frame,  # use frame WITH TAG drawings
+            frame_id,
+            RUN_ID,
+        )
+
+        card_poses_3d = {}  # card_poses_3d[label] = [X, Y, Z] in meters
+        if tag_id_for_depth in april_poses:
+            Z_ref = april_poses[tag_id_for_depth][2]  # z of the tag in meters
+            for label, (u, v) in card_poses.items():
+                X, Y, Z = pixel_to_camera(u, v, Z_ref, fx, fy, cx, cy)
+                card_poses_3d[label] = [X, Y, Z]
+        else:
+            card_poses_3d = {}
+
+        # Show the LIVE annotated view
+        cv2.imshow("Magic: Cards", annotated_frame)
+        cards, _ = find_closest(april_poses, card_poses_3d, found_cards, num_of_cards)
+        dealer_card,_=find_closest(april_poses, card_poses_3d, found_cards, num_dealer, tag_id=0)
+        for card in cards:
+            try:
+                my_cards[card]+=1
+            except:
+                my_cards[card]=1
+        for card in dealer_card:
+            try:
+                dealer_cards[card]+=1
+            except:
+                dealer_cards[card]=1
+
+        for card in found_cards:
+            agent.update_count(card)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+        number_of_images+=1
+
+    my_cards = sorted(my_cards.items(), key=lambda x: x[1], reverse=True)
+    dealer_cards=sorted(dealer_cards.items(), key=lambda x: x[1], reverse=True)
+    cards=[]
+    j=0
+    for card in my_cards:
+        print(num_of_cards)
+        if j<num_of_cards:
+            print("added a card")
+            cards.append(card[0])
+        j+=1
+    j=0
+    dealer_card=[]
+    for card in dealer_cards:
+        if num_dealer>j:
+            dealer_card.append(card[0])
+        j+=1
+    cap.release()
+    cv2.destroyAllWindows()
+    return dealer_card,cards
+
+def distance_checker():
+    """
+    Detect all cards + all AprilTags in a single frame,
+    compute 3D distances between each card and each tag.
+
+    Returns:
+        {
+            card_label: {
+                tag_id: distance_in_meters,
+                tag_id: distance_in_meters,
+                ...
+            },
+            ...
+        },
+        april_poses_3d,   # {tag_id: [X,Y,Z]}
+        card_poses_3d     # {card_label: [X,Y,Z]}
+    """
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        raise Exception("Could not open camera.")
+
+    ret, frame = cap.read()
+    if not ret:
+        cap.release()
+        raise Exception("Could not capture frame.")
+
+    cap.release()
+
+    # 1) Detect AprilTags
+    frame_for_tags = frame.copy()
+    frame_with_tags, april_poses, found_tags = detect_apriltags(
+        frame_for_tags,
+        camera_params
+    )
+    # Convert AprilTags to 3D (already returned as 3D, but ensure dict is clean)
+    april_poses_3d = {
+        tag_id: pose for tag_id, pose in april_poses.items()
+    }
+
+    # 2) Detect cards (YOLO)
+    annotated_frame, card_poses, found_cards = discover_cards(
+        frame_with_tags,
+        output_id=0,
+        RUN_ID=RUN_ID,
+        save_outputs=False
+    )
+    print(found_cards)
+    # 3) Convert card pixels → real 3D camera coordinates
+    card_poses_3d = {}
+    if tag_id_for_depth in april_poses_3d:
+        Z_ref = april_poses_3d[tag_id_for_depth][2]  # z of tag in meters
+
+        for label, (u, v) in card_poses.items():
+            X, Y, Z = pixel_to_camera(u, v, Z_ref, fx, fy, cx, cy)
+            card_poses_3d[label] = [X, Y, Z]
+
+    # 4) Compute distances between every card and every tag
+    distances = {}
+
+    for card_label, card_xyz in card_poses_3d.items():
+
+        distances[card_label] = {}
+
+        for tag_id, tag_xyz in april_poses_3d.items():
+            dx = card_xyz[0] - tag_xyz[0]
+            dy = card_xyz[1] - tag_xyz[1]
+            dz = card_xyz[2] - tag_xyz[2]
+            dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+
+            distances[card_label][tag_id] = dist
+
+    for card_label, tag_distances in distances.items():
+        print(card_label, tag_distances)
+
+def distance_checker_multi(num_frames=30):
+    """
+    Capture many frames and produce reliable:
+      - card list
+      - april tags
+      - 3D card coordinates
+      - distances between each card and each AprilTag
+
+    Returns:
+        distances, april_poses_3d, card_poses_3d
+    """
+
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        raise Exception("Could not open camera.")
+
+    # stores many detections
+    card_seen_count = defaultdict(int)
+    card_xyz_list = defaultdict(list)
+
+    april_xyz_list = defaultdict(list)
+
+    frame_id = 0
+
+    while frame_id < num_frames:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # 1) Detect AprilTags
+        frame_for_tags = frame.copy()
+        frame_with_tags, april_poses, found_tags = detect_apriltags(
+            frame_for_tags,
+            camera_params
+        )
+
+        # store AprilTag 3D poses (multiple samples)
+        for tag_id, pose3d in april_poses.items():
+            april_xyz_list[tag_id].append(pose3d)
+
+        # 2) Detect cards (YOLO)
+        annotated, card_poses, found_cards = discover_cards(
+            frame_with_tags,
+            output_id=frame_id,
+            RUN_ID=RUN_ID,
+            save_outputs=False
+        )
+
+        # 3) Convert each card pixel → 3D using AprilTag depth
+        if tag_id_for_depth in april_poses:
+            Z_ref = april_poses[tag_id_for_depth][2]
+
+            for label, (u, v) in card_poses.items():
+                X, Y, Z = pixel_to_camera(u, v, Z_ref, fx, fy, cx, cy)
+                card_xyz_list[label].append([X, Y, Z])
+                card_seen_count[label] += 1
+
+        frame_id += 1
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+    # 4) Aggregate AprilTag positions (median)
+    april_poses_3d = {
+        tag_id: np.median(np.array(samples), axis=0).tolist()
+        for tag_id, samples in april_xyz_list.items()
+    }
+
+    # 5) Aggregate card positions (median)
+    card_poses_3d = {
+        card: np.median(np.array(samples), axis=0).tolist()
+        for card, samples in card_xyz_list.items()
+        if card_seen_count[card] >= 3   # must appear in >=3 frames
+    }
+
+    # 6) Compute distances
+    distances = {}
+    for card, card_xyz in card_poses_3d.items():
+        distances[card] = {}
+
+        for tag_id, tag_xyz in april_poses_3d.items():
+            dx = card_xyz[0] - tag_xyz[0]
+            dy = card_xyz[1] - tag_xyz[1]
+            dist = math.sqrt(dx*dx + dy*dy)
+            distances[card][tag_id] = dist
+
+    for card_label, tag_distances in distances.items():
+        print(card_label, tag_distances)
 
 
-game("bj")
-cv2.destroyAllWindows()
